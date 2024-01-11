@@ -6,11 +6,11 @@ using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using AssemblyCSharp.Assets.Scripts;
+using System.Threading;
 
 public class Client : NetworkManager
 {
     public Client(GameManager manager) : base(manager) { }
-
 
     public override void StartNetworkManager()
     {
@@ -25,6 +25,8 @@ public class Client : NetworkManager
         try
         {
             IPAddress serverAddress = await Task.Run(() => SendBroadcast());
+
+            Debug.Log($"Adresa servera iz klijenta: {serverAddress}");
 
             if (serverAddress != null)
             {
@@ -66,33 +68,45 @@ public class Client : NetworkManager
                                 int result = BitConverter.ToInt32(buffer, 8);
 
                                 //započnite igru kroz gameManagera
+                                gameManager.BeginGame();
                                 // ako je rezultat jedan igru počinje klijent odnosno uključuje se ploča kroz EnableBoard() 
+                                if (result == 1) { gameManager.EnableBoard(); }
                                 //prekinite switch
+                                break;
                             }
 
                         case ProtocolData.MessageCode.MOVE:
                             {
                                 // izvršite potez putem gameManagera te na odgovarajuće polje
+                                gameManager.ExecuteMove((int)recievedUnit.space);
                                 if (!gameManager.gameFinished)
                                 {
                                     // uključite ploču da ovaj igrač može odigrati
+                                    gameManager.EnableBoard();
                                 }
                                 // prekinite switch
+                                break;
                             }
                         case ProtocolData.MessageCode.RESTART:
                             {
                                 //inicijalizirajte ploču kroz gameManager
+                                gameManager.InitializeBoard();
                                 //započnite igru kroz gameManager
+                                gameManager.BeginGame();
                                 //pošaljite poruku o sinkronizaciji kroz networkStream
+                                SendSync(networkStream, buffer);
                                 // prekinite switch
+                                break;
                               
                             }
                         case ProtocolData.MessageCode.EXIT:
                             {
                                 //zatvorite mrežno strujanje
+                                networkStream.Close();
                                 // postavite zastavicu da da je igra zatvorena
+                                close = true;
                                 // prekinite switch
-
+                                break;
                             }
                     }
                 }
@@ -119,50 +133,68 @@ public class Client : NetworkManager
         }
     }
 
-
-    private IPAddress SendBroadcast()
+        private IPAddress SendBroadcast()
     {
-        // definirajte varijablu requestData u koju ćete pohraniti odgovor "TACTOE" kako bi poslužitelj znao da se radi o klijentu
-        // definirajte varjablu serverEp koja će biti tipa IPEndpoint te koja će poprimiti vrijednost od  paketa odgovora.
-        // kreirajte byte polje koje će pohraniti povratnu inforaciju te ga inicijalizirajte na null
-        // kreijrajte varijablu udpClinet tipa UdpClient
-        // u novokreiranom udpClientu uključite opciju boradcast
-        // postavite ReceiveTimeout u novom udpClientu na 5000
 
- 
+        // definirajte varijablu requestData u koju ćete pohraniti odgovor "TACTOE" kako bi poslužitelj znao da se radi o klijentu
+        var requestData = Encoding.ASCII.GetBytes("TACTOE");
+
+        // definirajte varjablu serverEp koja će biti tipa IPEndpoint te koja će poprimiti vrijednost od  paketa odgovora.
+        IPEndPoint serverEp = null;
+
+        // kreirajte byte polje koje će pohraniti povratnu inforaciju te ga inicijalizirajte na null
+        byte[] responseData = null;
+
+        // kreijrajte varijablu udpClinet tipa UdpClient
+        UdpClient udpClient = new()
+        {
+            // u novokreiranom udpClientu uključite opciju boradcast
+            EnableBroadcast = true
+        };
+
+        // postavite ReceiveTimeout u novom udpClientu na 5000
+        udpClient.Client.ReceiveTimeout = 5000;
+
 
         // inicirajte petlju
-
         while (true)
         {
             // provjerite je li udpClient aktivan (ne null)
-       
+            if (udpClient != null) 
             {
                 // pošaljite requestData na broadcast IP adresu te port iz Constant polja
-
-
+                udpClient.Send(requestData, requestData.Length, new IPEndPoint(IPAddress.Broadcast, Constants.PORT));
+                Debug.Log(udpClient.Client.LocalEndPoint);
                 // pokrenite periodički task - ostavite ovaj kod
+                var taskTokenSource = new CancellationTokenSource();
+                CancellationToken token = taskTokenSource.Token;
                 Task.Run(() =>
                     {
                         try
                         {
-                            // pohranite  u variajblu response data dolazna informacija iz novog udpCLienta
-
+                            // pohranite u variajblu response data dolazna informacija iz novog udpCLienta
+                            responseData = udpClient.Receive(ref serverEp);
+                            token.ThrowIfCancellationRequested();
                         }
                         // hvatanje iznimke
                         catch (SocketException exc)
                         {
                             Debug.Log("SocketException caught in SendBroadcast, udpClient was closed or timed out: " + exc.Message);
                         }
-                    }
+                    }, token
                 ).Wait(5000);
+
 
                 // provjera je li postoji odgovor i je li u njemu "TIC"
                 if (responseData != null && Encoding.ASCII.GetString(responseData) == "TIC")
                 {
                     //zatvorite udpClienta
+                    udpClient.Close();
+                    // zaustaviti task da se uspije sve returnati
+                    taskTokenSource.Cancel();
+                    taskTokenSource.Dispose();
                     // vratite identificiranu adresu poslužitelja
-                   
+                    return serverEp.Address;
                 }
             }
             else
