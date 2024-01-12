@@ -34,7 +34,7 @@ public abstract class NetworkManager : IDisposable
       if (tcpClient != null) {
             // ako postoji potrebno je
             // definirati novi responseBuffer
-            byte[] responseBuffer = new byte[4];
+            byte[] responseBuffer = new byte[256];
             // dohvatiti networkStream iz samog tcpClienta
             NetworkStream networkStream = tcpClient.GetStream();
             // definirati novi ProtokolData objekt i u njemu postaviti poruku na tip EXIT

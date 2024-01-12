@@ -95,7 +95,7 @@ public class Server : NetworkManager
                                 if (result == 0) { gameManager.EnableBoard(); }
 
                                 // pošaljite responseBuff klijentu
-                                networkStream.Write(responseBuff, 0, 8);
+                                networkStream.Write(responseBuff, 0, 12);
                                 //prekinite switch
                                 break;
                             }
